@@ -50,6 +50,10 @@ def RunGit(args, **kwargs):
   cmd = ['git'] + args
   return RunCommand(cmd, **kwargs)
 
+def GetUserCredentials():
+  email = raw_input('Email: ').strip()
+  password = getpass.getpass('Password for %s: ' % email)
+  return email, password
 
 class Settings:
   def __init__(self):
@@ -208,6 +212,7 @@ class Changelist:
     self.has_issue = False
     self.issue = None
     self.has_description = False
+    self.token = None
     self.description = None
 
   def GetBranch(self):
@@ -301,20 +306,27 @@ or verify this branch is set up to track another (via the --track argument to
       self.SetPatchset(0)
     self.has_issue = False
 
-  def CloseIssue(self):
-    def GetUserCredentials():
-      email = raw_input('Email: ').strip()
-      password = getpass.getpass('Password for %s: ' % email)
-      return email, password
-
-    rpc_server = upload.HttpRpcServer(settings.GetServer(),
+  def GetServer(self):
+    return upload.HttpRpcServer(settings.GetServer(),
                                       GetUserCredentials,
                                       host_override=settings.GetServer(),
                                       save_cookies=True)
+
+  def GetToken(self):
+    if self.token is None:
+      # empty data to force POST
+      data = [("description", "")]
+      ctype, body = upload.EncodeMultipartFormData(data, [])
+      rpc_server = self.GetServer()
+      self.token = rpc_server.Send('/xsrf_token', body, ctype, extra_headers={"X-Requesting-XSRF-Token":  "batman"})
+    return self.token
+
+  def CloseIssue(self, msg):
     # You cannot close an issue with a GET.
     # We pass an empty string for the data so it is a POST rather than a GET.
-    data = [("description", self.description),]
+    data = [("xsrf_token", self.GetToken()),]
     ctype, body = upload.EncodeMultipartFormData(data, [])
+    rpc_server = self.GetServer()
     rpc_server.Send('/' + self.GetIssue() + '/close', body, ctype)
 
   def _IssueSetting(self):
@@ -723,7 +735,7 @@ def CmdDCommit(args):
                             re.DOTALL).match(output).group(1)
       cl.description = (cl.description +
                         "\n\nCommitted: " + viewvc_url + revision)
-    cl.CloseIssue()
+    cl.CloseIssue("")
     cl.SetIssue(0)
 
 
@@ -833,6 +845,12 @@ def CmdUpstream(args):
   cl = Changelist()
   print cl.GetUpstreamBranch()
 
+def CmdAbandon(args):
+  cl = Changelist()
+  cl.issue = args[0]
+  cl.has_issue = True
+  cl.CloseIssue("*** Abandoned ***")
+
 COMMANDS = [
   ('config',  'edit configuration for this tree',            CmdConfig),
   ('dcommit', 'commit the current changelist via git-svn',   CmdDCommit),
@@ -844,6 +862,7 @@ COMMANDS = [
   ('tree',    'show the status of the tree',                 CmdTreeStatus),
   ('upload',  'upload the current changelist to codereview', CmdUpload),
   ('upstream', 'print the name of the upstream branch, if any', CmdUpstream),
+  ('abandon', 'abandon a CL', CmdAbandon),
 ]
 
 
