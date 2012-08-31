@@ -307,6 +307,7 @@ class AbstractRpcServer(object):
   def Send(self, request_path, payload=None,
            content_type="application/octet-stream",
            timeout=None,
+           extra_headers=None,
            **kwargs):
     """Sends an RPC and returns the response.
 
@@ -338,6 +339,9 @@ class AbstractRpcServer(object):
           url += "?" + urllib.urlencode(args)
         req = self._CreateRequest(url=url, data=payload)
         req.add_header("Content-Type", content_type)
+        if extra_headers:
+            for k, v in extra_headers.iteritems():
+                req.add_header(k, v)
         try:
           f = self.opener.open(req)
           response = f.read()
